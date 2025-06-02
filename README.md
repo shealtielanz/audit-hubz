@@ -40,7 +40,7 @@ Deployment Chain(s)
 - The Open Network(TON).
 
 ## <br/> Summary of Findings
-> Only 2 High & 1 Medium Severity bugs were found during the sandboxed time of this audit!
+> Only 2 high & 1 medium severity bugs were found during the sandboxed period of this audit!
 
 
 |  Identifier  | Title                        | Severity      |
@@ -54,7 +54,7 @@ Deployment Chain(s)
 #### Details 
 The airdrop.fc contract implements a Merkle proof-based airdrop mechanism but when the `op == op::process_claim` which allows for claiming of the airdrops, the `airdrop.fc` doesn't validate the proof completely, allowing an attacker to forge a fake proof which still contains the merkle root of the `airdrop.fc`, create a helper contract with the false proof, then use it to claim any arbitrary amount of tokens from the `airdrop.fc` contract.
 
-	1.	forge a fak proof that shares the same merkle root as the legitimate tree.
+	1.	forge a fake proof that shares the same merkle root as the legitimate tree.
 	2.	Embed arbitrary data (for instance, their own wallet and amount) in a fake dictionary.
 	3.	deploy a helper contract using the fake proof.
 	4.	pass all checks and claim unearned jettons.
@@ -67,7 +67,7 @@ throw_unless(42, exotic?);
 throw_unless(43, cs~load_uint(8) == 3);
 throw_unless(44, data::merkle_root == cs~load_uint(256));
 ```
-It only checks that the merkle root matches `data::merkle_root` but does not validate the merkIe path that links the index and its corresponding dict entry to the root.
+It only checks that the merkle root matches `data::merkle_root` but does not validate the merkle path that links the index and its corresponding dict entry to the root.
 
 
 **The check:**
