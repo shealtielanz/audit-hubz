@@ -45,7 +45,7 @@ Deployment Chain(s)
 | ------ | ---------------------------- | ------------- |
 | [H-01] | [Incomplete validation of Merkle proof allows an attacker to steal all the jettons owned by the airdrop.fc](#h-01-incomplete-validation-of-merkle-proof-allows-an-attacker-to-steal-all-the-jettons-owned-by-the-airdrop) | HIGH |
 | [H-02] | [The proof validation is vulnerable to the second preimage attack, allowing for claiming more than once for given valid proofs](#h-02-the-proof-validation-is-vulnerable-to-the-second-preimage-attack-allowing-for-claiming-more-than-once-for-given-valid-proofs) | HIGH |
-| [M-01] | [Airdrop helper doesn't handle bounced messages, leading to loss of funds if the messages for claim bounce back for any reason.](#m-01-airdrop-helper-doesnt-handle-bounced-messages-leading-to-loss-of-funds-if-the-messages-for-claim-bounce-back-for-any-reason) | MED |
+| [M-01] | [Airdrop helper doesn't handle bounced messages, leading to loss of funds if the messages for claim bounce back for any reason.](#-m-01-airdrop-helper-doesnt-handle-bounced-messages-leading-to-loss-of-funds-if-the-messages-for-claim-bounce-back-for-any-reason) | MED |
 
 ### [H-01] Incomplete validation of Merkle proof allows an attacker to steal all the jettons owned by the airdrop
 
