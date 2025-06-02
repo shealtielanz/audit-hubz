@@ -40,6 +40,8 @@ Deployment Chain(s)
 - The Open Network(TON).
 
 ## <br/> Summary of Findings
+> Only 2 High & 1 Medium Severity bugs were found during the sandboxed time of this audit!
+
 
 |  Identifier  | Title                        | Severity      |
 | ------ | ---------------------------- | ------------- |
