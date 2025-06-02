@@ -41,102 +41,122 @@ Deployment Chain(s)
 
 ## <br/> Summary of Findings
 
-|  Identifier  | Title                        | Severity      | Mitigated |
-| ------ | ---------------------------- | ------------- | ----- |
-| [H-01] | [Incomplete validation of Merkle proof allows an attacker to steal all the jettons owned by the airdrop.fc](#h-01-incomplete-validation-of-merkle-proof-allows-an-attacker-to-steal-all-the-jettons-owned-by-the-airdrop) | HIGH | ✔️ |
-| [H-02] | [Math error in Dynamo4626#_claimable_fees_available will lead to fees or strategy lockup](#h-02-math-error-in-dynamo4626_claimable_fees_available-will-lead-to-fees-or-strategy-lockup) | HIGH | ✔️ |
-| [M-01] | [Governance#replaceGovernance is unable to actually change vault governance](#m-01-governancereplacegovernance-is-unable-to-actually-change-vault-governance) | MED | ✔️ |
-| [M-02] | [Assert statement in Dynamo4626#_claimable_fees_available can cause vault softlock in the event of partial fund loss](#m-02-assert-statement-in-dynamo4626_claimable_fees_available-can-cause-vault-softlock-in-the-event-of-partial-fund-loss) | MED | ✔️ |
-| [L-01] | [aaveAdapter.vy has no method to claim LP incentives](#l-01-aaveadaptervy-has-no-method-to-claim-lp-incentives) | LOW | ❌ |
-| [L-02] | [Ownership of governance.vy can't be changed after initialization](#l-02-ownership-of-governancevy-cant-be-changed-after-initialization) | LOW | ✔️ |
-
-## <br/> High Risk Findings
+|  Identifier  | Title                        | Severity      |
+| ------ | ---------------------------- | ------------- |
+| [H-01] | [Incomplete validation of Merkle proof allows an attacker to steal all the jettons owned by the airdrop.fc](#h-01-incomplete-validation-of-merkle-proof-allows-an-attacker-to-steal-all-the-jettons-owned-by-the-airdrop) | HIGH |
+| [H-02] | [The proof validation is vulnerable to the second preimage attack, allowing for claiming more than once for given valid proofs](#h-02-the-proof-validation-is-vulnerable-to-the-second-preimage-attack-allowing-for-claiming-more-than-once-for-given-valid-proofs) | HIGH |
+| [M-01] | [Airdrop helper doesn't handle bounced messages, leading to loss of funds if the messages for claim bounce back for any reason.](#m-01-airdrop-helper-doesnt-handle-bounced-messages-leading-to-loss-of-funds-if-the-messages-for-claim-bounce-back-for-any-reason) | MED |
 
 ### [H-01] Incomplete validation of Merkle proof allows an attacker to steal all the jettons owned by the airdrop
 
 #### Details 
+The airdrop.fc contract implements a Merkle proof-based airdrop mechanism but when the `op == op::process_claim` which allows for claiming of the airdrops, the `airdrop.fc` doesn't validate the proof completely, allowing an attacker to forge a fake proof which still contains the merkle root of the `airdrop.fc`, create a helper contract with the false proof, then use it to claim any arbitrary amount of tokens from the `airdrop.fc` contract.
+
+	1.	forge a fak proof that shares the same merkle root as the legitimate tree.
+	2.	Embed arbitrary data (for instance, their own wallet and amount) in a fake dictionary.
+	3.	deploy a helper contract using the fake proof.
+	4.	pass all checks and claim unearned jettons.
+ 
+The issue is that the logic validates with the user inputted proof, allowing the attacker the ability to craft a proof with same merkle root of the airdrop.fc, the crafted proof will also contain the attacker details and arbitrary amount in the `dict`, given the proof and it's hash, he can create a helper contract with those details to bypass all checks and claim unmerited airdrops.
+**vulnerable code**
+```c++
+(slice cs, int exotic?) = proof_cell.begin_parse_exotic();
+throw_unless(42, exotic?);
+throw_unless(43, cs~load_uint(8) == 3);
+throw_unless(44, data::merkle_root == cs~load_uint(256));
+```
+It only checks that the merkle root matches `data::merkle_root` but does not validate the merkIe path that links the index and its corresponding dict entry to the root.
 
 
+**The check:**
+```c++
+throw_unless(error::wrong_sender, equal_slices(context::sender, helper_address(helper_stateinit(proof_cell.cell_hash(), index))));
+```
+It only checks the caller’s address matches a known derivation of the (false proof hash + index) butt since the attacker contruls both, they can compute the expected address and predeploy the helper contract accordingly.
 
 #### Lines of Code
 
-[Dynamo4626.vy#L519-L521](https://github.com/DynamoFinance/vault/blob/c331ffefadec7406829fc9f2e7f4ee7631bef6b3/contracts/Dynamo4626.vy#L519-L521)
+[airdrop.fc#L86-102-L521](https://github.com/Gusarich/airdrop/blob/e1b1a8e544fb0d68eaeed9a93210ffca045917b7/contracts/airdrop.fc#L86C1-L102C6)
 
-```func
-    elif _yield == FeeType.PROPOSER:
-        assert msg.sender == self.current_proposer, "Only curent proposer may claim strategy fees."
-        self.total_strategy_fees_claimed += claim_amount        
+```c++
+        elseif (context::op == op::process_claim) {
+        cell proof_cell = in_msg_body~load_ref();
+        int index = in_msg_body~load_uint(256);
+
+        (slice cs, int exotic?) = proof_cell.begin_parse_exotic();
+        throw_unless(42, exotic?);
+        throw_unless(43, cs~load_uint(8) == 3);
+        throw_unless(44, data::merkle_root == cs~load_uint(256));
+
+
+        cell dict = cs~load_ref();
+        (slice entry, int found?) = dict.udict_get?(256, index);
+        throw_unless(45, found?);
+
+        throw_unless(error::wrong_sender, equal_slices(context::sender, helper_address(helper_stateinit(proof_cell.cell_hash(), index))));
+
+        send_tokens(entry~load_msg_addr(), entry~load_coins());
+    }       
 ```
 
 #### Recommendation
+Implement a correct proof validation:
+- traverse the merkle path usin the supplied leaf and sibling hashes.
+- recompute the merkle root.
+- reject the proof if the recomputed root does not match `data::merkle_root`.
 
-Revise access control on _set_strategy. I would suggest allowing anyone to claim tokens but sending to the correct target instead of msg.sender
-
-#### Remediation
-
-Fixed [here](https://github.com/DynamoFinance/vault/commit/1601b0acd23783ed87b9b3ae01c6a97a462a41a8) by allowing governance to claim on behalf of proposer
-
-### <br/> [H-02] Math error in Dynamo4626#_claimable_fees_available will lead to fees or strategy lockup
-
-#### Details 
-
-In the assert statement, total_fees_ever is compared against both fees types of fees claimed. The issue with this is that this is a relative value depending on which type of fee is being claimed. The assert statement on the other hand always compares as if it is FeeType.BOTH. This will lead to this function unexpectedly reverting when trying to claim proposer fees. This leads to stuck fees but also proposer locked as described in H-01.
-
-#### Lines of Code
-
-[Dynamo4626.vy#L428-L438](https://github.com/DynamoFinance/vault/blob/c331ffefadec7406829fc9f2e7f4ee7631bef6b3/contracts/Dynamo4626.vy#L428-L438)
-
-```vyper
-    fee_percentage: uint256 = YIELD_FEE_PERCENTAGE
-    if _yield == FeeType.PROPOSER:
-        fee_percentage = PROPOSER_FEE_PERCENTAGE
-    elif _yield == FeeType.BOTH:
-        fee_percentage += PROPOSER_FEE_PERCENTAGE
-    elif _yield != FeeType.YIELD:
-        assert False, "Invalid FeeType!" 
-
-    total_fees_ever : uint256 = (convert(total_returns,uint256) * fee_percentage) / 100
-
-    assert self.total_strategy_fees_claimed + self.total_yield_fees_claimed <= total_fees_ever, "Total fee calc error!"
+Use this logic to validate rather than a simple check of:
+```c++
+throw_unless(44, data::merkle_root == cs~load_uint(256));
 ```
 
-#### Recommendation
-
-Check should be made against the appropriate values (i.e. proposer should be check against only self.total_strategy_fees_claimed).
-
-#### Remediation
-
-Fixed [here](https://github.com/DynamoFinance/vault/commit/6e762711f55f9cf4bece42706ddef7c92d5b4ac4) and [here](https://github.com/DynamoFinance/vault/commit/c649ceda1b7b15b14486bd1332aefb8d48ed5279) by splitting fee calculations base on fee type being claimed
-
-### <br/> [H-03] Malicious user can disable compound integration via share manipulation 
+### <br/> [H-02] Front-running is possible, allowing an attacker to burn all the owner's tokens, thereby grieving the airdrop.
 
 #### Details 
+On deployment, the jetton wallet of the contract is set optionally, and when called to set the jetton
+This allows the admin to deploy the airdrop and send tokens to the airdrop(creating for the airdrop contract a jetton contract for the tokens to be distributed), which it would further distribute to users on calls to claim from the helpers, the issue here comes from the idea that on calling the contract with `op == op::deploy` sets the jetton wallet which it would make calls to in order to distribute token as specified by the sender.
+```c++
+       if (context::op == op::deploy) {
+        throw_unless(error::already_deployed, data::jetton_wallet.preload_uint(2) == 0);
+        data::jetton_wallet = in_msg_body~load_msg_addr();
+        save_data();
+    }
+```
+If the admin opts in for later calls where `op==deploy`, an attacker can send a call first to the contract to set the jetton wallet as any arbitrary token, causing calls to claim to send valueless tokens to users, and all the valid airdrop tokens owned by the airdrop.fc contract instance will be lost forever.
 
-It's a common assumption that Compound V2 share ratio can only ever increase but with careful manipulation it can actually be lowered. The full explanation is a bit long but you can find it [here](https://github.com/code-423n4/2023-01-reserve-findings/issues/310) in one of my public reports.
+## Attack path
+- Owner wants to airdrop 1,000,000 USDC tokens to users.
+- He deploys the airdrop contract without setting the jetton wallet.
+- He later sends 1,000,000 USDC to the airdrop contract address.
+- This creates a jetton wallet that can only be called by the airdrop contract.
+- Now the owner wants to set the jetton wallet for the airdrop.fc
+- An attacker, seeing that the jetton wallet has been created for the airdrop, can grieve the airdrop by:
+- sending a call to the airdrop contract with `op == deploy` knowing the admin will soon call it.
+- The attack crafts a message to set the jetton wallet that the airdrop contract will call to a valueless jetton token.
+- This can even be made to any address, and since the jetton wallet being set after cannot be changed, the calls to claim will send messages to the incorrect jetton wallet for a valueless token
+- The call made by the attacker will pass, and all the USDC owned by the `airdrop.fc` instance, will be lost forever.
 
-This quirk of Compound V2 can be used to trigger the check in FundsAllocator to block the Compound V2 adapter. This is useful if the user wants to push their own proposal allowing them to sabotage other users and cause loss of yield to the vault.
+Allows setting to an incorrect jetton if the admin has not set it yet. Anyone can make a first call to set the jetton to an incorrect address, where all the value in the real jetton wallet address will be stuck as it requires the `airdrop.fc` instance to call it.
+
                     
 #### Lines of Code
 
-[FundsAllocator.vy#L67-L71](https://github.com/DynamoFinance/vault/blob/c331ffefadec7406829fc9f2e7f4ee7631bef6b3/contracts/FundsAllocator.vy#L67-L71)
+[airdrop.fc#L80-L84](https://github.com/Gusarich/airdrop/blob/e1b1a8e544fb0d68eaeed9a93210ffca045917b7/contracts/airdrop.fc#L80C1-L84C6)
 
-```vyper
-          if pool.current < pool.last_value:
-              # We've lost value in this adapter! Don't give it more money!
-              blocked_adapters[blocked_pos] = pool.adapter
-              blocked_pos += 1
-              pool.delta = 0 # This will result in no tx being generated.
+```c++
+    if (context::op == op::deploy) {
+        throw_unless(error::already_deployed, data::jetton_wallet.preload_uint(2) == 0);
+        data::jetton_wallet = in_msg_body~load_msg_addr();
+        save_data();
+    }
 ```
 
 #### Recommendation
 
-Instead of using an absolute check, instead only block the adapter if there is reasonable loss.
+Set the admin during contract creation and ensure only him can make a call where `op == deploy()`, unlike the old code where the admin is set to the first person who makes the call.
 
-#### Remediation
 
-Fixed [here](https://github.com/DynamoFinance/vault/commit/e3092bf4908e5f1d049e18fc52d310c9d8ce29ae) by allowing larger nominal (but still very small) loss before disabling it
-
-### <br/> [H-04] Dangerous approval/rejection criteria when number of guards is odd
+### <br/> [M-01] Airdrop helper doesn't handle bounced messages, leading to loss of funds if the messages for claim bounce back for any reason.
 
 #### Details 
 
@@ -152,131 +172,6 @@ The assert statement requires that the number of endorsements equals or exceeds 
 
 #### Recommendation
 
-Make the requirement that it must equal or exceed `length / 2 + length % 2`
+Handle bounced msgs properly to ensure funds aren't lost when the msgs sent bounces back.
 
-#### Remediation
 
-Fixed [here](https://github.com/DynamoFinance/vault/commit/835993b6e9357b2246139cca43502cfc65a34e0a) by changing `len(self.LGov)/2` to `len(self.LGov)/2 + 1` so that a majority vote is required to pass
-
-### <br/> [H-05] A single malfunctioning/malicious adapter can permanently DOS entire vault
-
-#### Details 
-
-When rebalancing the vault, FundsAllocator attempts to withdraw/deposit from each adapter. In the event that the underlying protocol (such as AAVE) disallows deposits or withdrawals (or is hacked), the entire vault would be DOS'd since rebalancing is called on every withdraw, deposit or strategy change.
-
-#### Lines of Code
-
-[FundsAllocator.vy#L47-L57](https://github.com/DynamoFinance/vault/blob/c331ffefadec7406829fc9f2e7f4ee7631bef6b3/contracts/FundsAllocator.vy#L47-L57)
-
-```vyper
-    for pos in range(MAX_POOLS):
-        pool : BalancePool = _pool_balances[pos]
-        if pool.adapter == empty(address): break
-
-        # If the pool has been removed from the strategy then we must empty it!
-        if pool.ratio == 0:
-            pool.target = 0
-            pool.delta = convert(pool.current, int256) * -1 # Withdraw it all!
-        else:
-            pool.target = (total_pool_target_assets * pool.ratio) / _total_ratios      
-            pool.delta = convert(pool.target, int256) - convert(pool.current, int256)            
-```
-
-#### Recommendation
-
-Add an emergency function to force remove adapters and make it accessible via Governance.vy
-
-#### Remediation
-
-Fixed [here](https://github.com/DynamoFinance/vault/commit/24f9d95cc6a7ce62c5a0229c103fe9a95cc39e12) by simply bypassing failed adapter calls
-
-## <br/> Medium Risk Findings
-
-### [M-01] Governance#replaceGovernance is unable to actually change vault governance 
-
-#### Details 
-
-The code to actually replace the governance contract has been commented out resulting in it being impossible to ever change the governance contract.
-
-#### Lines of Code
-
-[Governance.vy#L472-L477](https://github.com/DynamoFinance/vault/blob/c331ffefadec7406829fc9f2e7f4ee7631bef6b3/contracts/Governance.vy#L472-L477)
-
-```vyper
-    for guard_addr in self.LGov:
-        if self.VotesGCByVault[vault][guard_addr] == NewGovernance:
-            VoteCount += 1
-
-    # if len(self.LGov) == VoteCount:
-    #     Vault(self.Vault).replaceGovernanceContract(NewGovernance)
-```
-
-#### Recommendation
-
-Restore code by removing comment
-
-#### Remediation
-
-Fixed [here](https://github.com/DynamoFinance/vault/commit/eb85de2bf7aadacf529691c42ba83d404a3519e9) by removing comment
-
-### <br/> [M-02] Assert statement in Dynamo4626#_claimable_fees_available can cause vault softlock in the event of partial fund loss
-
-#### Details 
-
-In the event of partial fund loss there may be legit cases where this assert statement is triggered. If the vault suffers a partial loss but still maintains a positive return (i.e. it has made 100e18 but suffers a loss of 50e18) then this statement will improperly revert. Given this function is called with every deposit and withdraw the vault would be completely DOS'd until yield (or donation) recovered the difference. 
-
-#### Lines of Code
-
-[Dynamo4626.vy#L438](https://github.com/DynamoFinance/vault/blob/c331ffefadec7406829fc9f2e7f4ee7631bef6b3/contracts/Dynamo4626.vy#L438)
-
-```vyper
-    assert self.total_strategy_fees_claimed + self.total_yield_fees_claimed <= total_fees_ever, "Total fee calc error!"
-```
-
-#### Recommendation
-
-Instead of reverting, simply return 0.
-
-#### Remediation
-
-Fixed [here](https://github.com/DynamoFinance/vault/commit/6e762711f55f9cf4bece42706ddef7c92d5b4ac4) by returning 0 instead of reverting
-
-## <br/> Low Risk Findings
-
-### [L-01] aaveAdapter.vy has no method to claim LP incentives
-
-#### Details 
-
-Considering this low since the primary scope for this audit is mainnet Ethereum.
-
-On alt L1's and L2's AAVE V3 frequently has LP incentives (such as OP tokens on Optimism). The current adapter has no methodology to claim these tokens. Any tokens accumulated to the vault would be impossible to claim leading to loss of yield for all LP's in the vault.
-
-#### Lines of Code
-
-[aaveAdapter.vy](https://github.com/DynamoFinance/vault/blob/master/contracts/aaveAdapter.vy)
-
-#### Recommendation
-
-Before deploying anything other than mainnet make sure to include a way to claim and distribute/swap rewards to the vault.
-
-#### Remediation
-
-Acknowledged that this is a limitation of their current implementation 
-
-### <br/> [L-02] Ownership of governance.vy can't be changed after initialization
-
-#### Details 
-
-The ability to change the governance contract's owner is not implemented, which could be problematic if the original owner's key is compromised or lost.
-
-#### Lines of Code
-
-[Governance.vy](https://github.com/DynamoFinance/vault/blob/c331ffefadec7406829fc9f2e7f4ee7631bef6b3/contracts/Governance.vy)
-
-#### Recommendation
-
-Implement functionality to change owner of the governance contract.
-
-#### Remediation
-
-Fixed in later version.
