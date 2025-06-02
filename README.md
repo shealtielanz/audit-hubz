@@ -43,9 +43,9 @@ Deployment Chain(s)
 
 |  Identifier  | Title                        | Severity      |
 | ------ | ---------------------------- | ------------- |
-| [H-01] | [Incomplete validation of Merkle proof allows an attacker to steal all the jettons owned by the airdrop.fc](#h-01-incomplete-validation-of-merkle-proof-allows-an-attacker-to-steal-all-the-jettons-owned-by-the-airdrop) | HIGH |
-| [H-02] | [The proof validation is vulnerable to the second preimage attack, allowing for claiming more than once for given valid proofs](#h-02-the-proof-validation-is-vulnerable-to-the-second-preimage-attack-allowing-for-claiming-more-than-once-for-given-valid-proofs) | HIGH |
-| [M-01] | [Airdrop helper doesn't handle bounced messages, leading to loss of funds if the messages for claim bounce back for any reason.](#-m-01-airdrop-helper-doesnt-handle-bounced-messages-leading-to-loss-of-funds-if-the-messages-for-claim-bounce-back-for-any-reason) | MED |
+| `H-01` | [Incomplete validation of Merkle proof allows an attacker to steal all the jettons owned by the airdrop.fc](#h-01-incomplete-validation-of-merkle-proof-allows-an-attacker-to-steal-all-the-jettons-owned-by-the-airdrop) | `HIGH` |
+| `H-02` | [Front-running is possible, allowing an attacker to burn all the owner's tokens, thereby grieving the airdrop.](#-h-02-front-running-is-possible-allowing-an-attacker-to-burn-all-the-owners-tokens-thereby-grieving-the-airdrop) | `HIGH` |
+| `M-01` | [Airdrop helper doesn't handle bounced messages, leading to loss of funds if the messages for claim bounce back for any reason.](#-m-01-airdrop-helper-doesnt-handle-bounced-messages-leading-to-loss-of-funds-if-the-messages-for-claim-bounce-back-for-any-reason) | `MED` |
 
 ### [H-01] Incomplete validation of Merkle proof allows an attacker to steal all the jettons owned by the airdrop
 
@@ -76,7 +76,7 @@ It only checks the caller’s address matches a known derivation of the (false p
 
 #### Lines of Code
 
-[airdrop.fc#L86-102-L521](https://github.com/Gusarich/airdrop/blob/e1b1a8e544fb0d68eaeed9a93210ffca045917b7/contracts/airdrop.fc#L86C1-L102C6)
+[`airdrop.fc#L86-102-L521`](https://github.com/Gusarich/airdrop/blob/e1b1a8e544fb0d68eaeed9a93210ffca045917b7/contracts/airdrop.fc#L86C1-L102C6)
 
 ```c++
         elseif (context::op == op::process_claim) {
@@ -141,7 +141,7 @@ Allows setting to an incorrect jetton if the admin has not set it yet. Anyone ca
                     
 #### Lines of Code
 
-[airdrop.fc#L80-L84](https://github.com/Gusarich/airdrop/blob/e1b1a8e544fb0d68eaeed9a93210ffca045917b7/contracts/airdrop.fc#L80C1-L84C6)
+[`airdrop.fc#L80-L84`](https://github.com/Gusarich/airdrop/blob/e1b1a8e544fb0d68eaeed9a93210ffca045917b7/contracts/airdrop.fc#L80C1-L84C6)
 
 ```c++
     if (context::op == op::deploy) {
@@ -160,18 +160,35 @@ Set the admin during contract creation and ensure only him can make a call where
 
 #### Details 
 
-The assert statement requires that the number of endorsements equals or exceeds the number of guards / 2. This becomes an issue with odd numbers due to truncation. If you were to have 3 guards then even a single approval would allow instant approval (`3/2 = 1`). In this scenario even a single malicious or compromised guard could drain the entire vault via a malicious proposal.
+The Airdrop helper ensures for gas efficiency and security ensuring a user can only claim once with a given proof, however it sends a bonceable message to the `airdrop.fc` contract, but it has no way to handle bounced msgs and if messages bounced for any reason since the helper has already set the state to claim, the user will never be able to claim his/her airdrop again.
+```c++
+  slice ds = get_data().begin_parse();
+    throw_if(error::already_claimed, ds~load_int(1));
+    set_claimed()
+```
 
 #### Lines of Code
 
-[Governance.vy#L310](https://github.com/DynamoFinance/vault/blob/c331ffefadec7406829fc9f2e7f4ee7631bef6b3/contracts/Governance.vy#L310)
+[`airdrop_helper.fc#L28-L40`](https://github.com/Gusarich/airdrop/blob/e1b1a8e544fb0d68eaeed9a93210ffca045917b7/contracts/airdrop_helper.fc#L28C1-L40C2)
 
-```vyper
-    assert (len(pending_strat.VotesEndorse) >= len(self.LGov)/2) or \
+```c++
+       send_raw_message(begin_cell()
+        .store_uint(0x10, 6)
+        .store_slice(airdrop)
+        .store_coins(0)
+        .store_uint(1, 107)
+        .store_ref(begin_cell()
+            .store_uint(op::process_claim, 32)
+            .store_uint(query_id, 64)
+            .store_ref(proof)
+            .store_uint(index, 256)
+        .end_cell())
+    .end_cell(), 128);
+}
 ```
 
 #### Recommendation
 
-Handle bounced msgs properly to ensure funds aren't lost when the msgs sent bounces back.
+Handle bounced msgs properly to ensure funds aren't lost when the msgs sent bounce back.
 
 
