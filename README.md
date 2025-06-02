@@ -4,7 +4,7 @@ Reviewed by: shealtiielanzz ([@shealtielanzz](https://twitter.com/shealtielanzz)
 
 Prepared For: Airdrop
 
-Review Date(s): 1/05/25 - 1/06/25
+Review Date(s): `1/05/25 - 1/06/25`
 
 
 ## <br/> shealtielanzz Background
