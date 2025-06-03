@@ -40,79 +40,15 @@ Deployment Chain(s)
 - The Open Network(TON).
 
 ## <br/> Summary of Findings
-> Only 2 high & 1 medium severity bugs were found during the sandboxed period of this audit!
+> Only 2 medium severity bugs were found during the sandboxed period of this audit!
 
 
 |  Identifier  | Title                        | Severity      |
 | ------ | ---------------------------- | ------------- |
-| `H-01` | [Incomplete validation of Merkle proof allows an attacker to steal all the jettons owned by the airdrop.fc](#h-01-incomplete-validation-of-merkle-proof-allows-an-attacker-to-steal-all-the-jettons-owned-by-the-airdrop) | `HIGH` |
-| `H-02` | [Front-running is possible, allowing an attacker to burn all the owner's tokens, thereby grieving the airdrop.](#-h-02-front-running-is-possible-allowing-an-attacker-to-burn-all-the-owners-tokens-thereby-grieving-the-airdrop) | `HIGH` |
+| `M-00` | [Front-running is possible, allowing an attacker to burn all the owner's tokens, thereby grieving the airdrop.](#-h-02-front-running-is-possible-allowing-an-attacker-to-burn-all-the-owners-tokens-thereby-grieving-the-airdrop) | `MED` |
 | `M-01` | [Airdrop helper doesn't handle bounced messages, leading to loss of funds if the messages for claim bounce back for any reason.](#-m-01-airdrop-helper-doesnt-handle-bounced-messages-leading-to-loss-of-funds-if-the-messages-for-claim-bounce-back-for-any-reason) | `MED` |
 
-### [H-01] Incomplete validation of Merkle proof allows an attacker to steal all the jettons owned by the airdrop
-
-#### Details 
-The airdrop.fc contract implements a Merkle proof-based airdrop mechanism but when the `op == op::process_claim` which allows for claiming of the airdrops, the `airdrop.fc` doesn't validate the proof completely, allowing an attacker to forge a fake proof which still contains the merkle root of the `airdrop.fc`, create a helper contract with the false proof, then use it to claim any arbitrary amount of tokens from the `airdrop.fc` contract.
-
-	1.	forge a fake proof that shares the same merkle root as the legitimate tree.
-	2.	Embed arbitrary data (for instance, their own wallet and amount) in a fake dictionary.
-	3.	deploy a helper contract using the fake proof.
-	4.	pass all checks and claim unearned jettons.
- 
-The issue is that the logic validates with the user inputted proof, allowing the attacker the ability to craft a proof with same merkle root of the airdrop.fc, the crafted proof will also contain the attacker details and arbitrary amount in the `dict`, given the proof and it's hash, he can create a helper contract with those details to bypass all checks and claim unmerited airdrops.
-**vulnerable code**
-```c++
-(slice cs, int exotic?) = proof_cell.begin_parse_exotic();
-throw_unless(42, exotic?);
-throw_unless(43, cs~load_uint(8) == 3);
-throw_unless(44, data::merkle_root == cs~load_uint(256));
-```
-It only checks that the merkle root matches `data::merkle_root` but does not validate the merkle path that links the index and its corresponding dict entry to the root.
-
-
-**The check:**
-```c++
-throw_unless(error::wrong_sender, equal_slices(context::sender, helper_address(helper_stateinit(proof_cell.cell_hash(), index))));
-```
-It only checks the caller’s address matches a known derivation of the (false proof hash + index) butt since the attacker contruls both, they can compute the expected address and predeploy the helper contract accordingly.
-
-#### Lines of Code
-
-[`airdrop.fc#L86-102-L521`](https://github.com/Gusarich/airdrop/blob/e1b1a8e544fb0d68eaeed9a93210ffca045917b7/contracts/airdrop.fc#L86C1-L102C6)
-
-```c++
-        elseif (context::op == op::process_claim) {
-        cell proof_cell = in_msg_body~load_ref();
-        int index = in_msg_body~load_uint(256);
-
-        (slice cs, int exotic?) = proof_cell.begin_parse_exotic();
-        throw_unless(42, exotic?);
-        throw_unless(43, cs~load_uint(8) == 3);
-        throw_unless(44, data::merkle_root == cs~load_uint(256));
-
-
-        cell dict = cs~load_ref();
-        (slice entry, int found?) = dict.udict_get?(256, index);
-        throw_unless(45, found?);
-
-        throw_unless(error::wrong_sender, equal_slices(context::sender, helper_address(helper_stateinit(proof_cell.cell_hash(), index))));
-
-        send_tokens(entry~load_msg_addr(), entry~load_coins());
-    }       
-```
-
-#### Recommendation
-Implement a correct proof validation:
-- traverse the merkle path usin the supplied leaf and sibling hashes.
-- recompute the merkle root.
-- reject the proof if the recomputed root does not match `data::merkle_root`.
-
-Use this logic to validate rather than a simple check of:
-```c++
-throw_unless(44, data::merkle_root == cs~load_uint(256));
-```
-
-### <br/> [H-02] Front-running is possible, allowing an attacker to burn all the owner's tokens, thereby grieving the airdrop.
+### <br/> [M-00] Front-running is possible, allowing an attacker to burn all the owner's tokens, thereby grieving the airdrop.
 
 #### Details 
 On deployment, the jetton wallet of the contract is set optionally, and when called to set the jetton
