@@ -45,7 +45,7 @@ Deployment Chain(s)
 
 |  Identifier  | Title                        | Severity      |
 | ------ | ---------------------------- | ------------- |
-| `M-00` | [Front-running is possible, allowing an attacker to burn all the owner's tokens, thereby grieving the airdrop.](#-h-02-front-running-is-possible-allowing-an-attacker-to-burn-all-the-owners-tokens-thereby-grieving-the-airdrop) | `MED` |
+| `M-00` | [Front-running is possible, allowing an attacker to burn all the owner's tokens, thereby grieving the airdrop.](#-m-00-front-running-is-possible-allowing-an-attacker-to-burn-all-the-owners-tokens-thereby-grieving-the-airdrop) | `MED` |
 | `M-01` | [Airdrop helper doesn't handle bounced messages, leading to loss of funds if the messages for claim bounce back for any reason.](#-m-01-airdrop-helper-doesnt-handle-bounced-messages-leading-to-loss-of-funds-if-the-messages-for-claim-bounce-back-for-any-reason) | `MED` |
 
 ### <br/> [M-00] Front-running is possible, allowing an attacker to burn all the owner's tokens, thereby grieving the airdrop.
